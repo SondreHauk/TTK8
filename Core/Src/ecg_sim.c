@@ -32,7 +32,7 @@ static volatile int32_t  rec_queue[REC_LEN];
 static volatile uint32_t rec_head, rec_tail, rec_dropped;
 static volatile uint32_t ticks;
 
-static uint32_t mv_to_code(float mv)
+static uint32_t __attribute__((unused)) mv_to_code(float mv)
 {
     float c = mv * 4096.0f / (float)ECG_SIM_VREF_MV;
     if (c < 0.0f) c = 0.0f;

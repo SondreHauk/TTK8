@@ -30,6 +30,10 @@
 #include "max30003.h"
 #include "rdetect.h"
 
+/* Only built for the loopback test, so that the normal application can be
+   built with ECG_SIM_ENABLE 0 (real electrodes). */
+#ifdef TTK8_LOOPBACK
+
 #if MAX30003_FS_HZ != RDETECT_FS_HZ
 #error "MAX30003 sample rate (max30003_config.h) and RDETECT_FS_HZ (rdetect_config.h) differ"
 #endif
@@ -207,3 +211,5 @@ void ttk8_run(SPI_HandleTypeDef *hspi, DAC_HandleTypeDef *hdac, TIM_HandleTypeDe
         }
     }
 }
+
+#endif /* TTK8_LOOPBACK */
