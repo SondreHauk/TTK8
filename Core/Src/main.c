@@ -25,6 +25,10 @@
 #include "ecg_sim.h"
 #include "rdetect.h"
 #include "ttk8_test.h"
+#include "uart_tx.h"
+#if ECG_STREAM
+#include "ecg_stream.h"
+#endif
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,6 +40,9 @@
 /* USER CODE BEGIN PD */
 #if ECG_ACQ_FS_HZ != RDETECT_FS_HZ
 #error "MAX30003 sample rate (max30003_config.h) and RDETECT_FS_HZ (rdetect_config.h) differ"
+#endif
+#ifndef ECG_STREAM
+#define ECG_STREAM 0      /* 1: stream ECG + heart rate for a serial plotter (set by CMake) */
 #endif
 #if ECG_ACQ_BLOCK_SAMPLES > RDETECT_MAX_SAMPLES
 #error "ECG_ACQ_BLOCK_SECONDS is longer than rdetect accepts (RDETECT_MAX_SAMPLES)"
@@ -79,7 +86,7 @@ static void MX_TIM3_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
-static void report_block(uint32_t first, int n, const uint32_t *pk, int count);
+static void report_block(uint32_t first, int n, const uint32_t *pk, int count) __attribute__((unused));
 static void pulse_trigger(void);
 static int start_acquisition(void);
 /* USER CODE END PFP */
@@ -168,6 +175,9 @@ static int start_acquisition(void)
   }
   have_prev_peak = 0;
   next_block_first = 0;
+#if ECG_STREAM
+  ecg_stream_reset();
+#endif
   return e;
 }
 
@@ -231,11 +241,18 @@ int main(void)
   }
 
   /* USER CODE BEGIN BSP */
+  /* From here on printf only queues bytes; USART1's interrupt sends them. */
+  uart_tx_init();
 #ifdef TTK8_LOOPBACK
   /* TTK8 sensor board loopback test; does not return. */
   ttk8_run(&hspi1, &hdac1, &htim6);
 #endif
   printf("\r\nmax30003_node: %u sps, %u s blocks\r\n", (unsigned)ECG_ACQ_FS_HZ, (unsigned)ECG_ACQ_BLOCK_SECONDS);
+#if ECG_STREAM
+  printf("ECG stream: ecg:<uV>,hr:<bpm>,r:<0|1> per sample, %lu.%lu s behind\r\n",
+         (unsigned long)(ECG_STREAM_DELAY_SAMPLES / ECG_ACQ_FS_HZ),
+         (unsigned long)(ECG_STREAM_DELAY_SAMPLES % ECG_ACQ_FS_HZ * 10u / ECG_ACQ_FS_HZ));
+#endif
   err = start_acquisition();
 #if ECG_SIM_ENABLE
   /* Test signal on PA4 (A2 -> ASIG). Needs JP1 on ASIG and JP2 on 0V9. */
@@ -263,10 +280,17 @@ int main(void)
     if (n > 0)
     {
       int count = rdetect_detect(ecg, (size_t)n, peaks, RDETECT_MAX_PEAKS);
+#if ECG_STREAM
+      /* Copied into the playback ring before the buffer goes back to ecg_acq.
+         A failed detection still streams the ECG, without peaks. */
+      ecg_stream_block(first, ecg, n, peaks, count >= 0 ? count : 0);
+#endif
       ecg_acq_release();
       if (count >= 0)
       {
+#if !ECG_STREAM
         report_block(first, n, peaks, count);
+#endif
       }
       else
       {
@@ -274,8 +298,14 @@ int main(void)
       }
     }
 
+#if ECG_STREAM
+    ecg_stream_pump(ecg_acq_count());
+#endif
 #if MAX30003_RTOR_ENABLE
-    if (ecg_acq_rtor(&rr_ms) && rr_ms != 0u)
+    /* In stream mode INT2B is still serviced (the R-to-R interval is read in
+       its interrupt), but the line is not printed: it would be ~11 s ahead of
+       the plotted ECG and break the plotter format. */
+    if (ecg_acq_rtor(&rr_ms) && rr_ms != 0u && !ECG_STREAM)
     {
       uint32_t bpm10 = (600000u + rr_ms / 2u) / rr_ms;
       printf("rtor %lu ms, %lu.%lu bpm\r\n", (unsigned long)rr_ms,
@@ -304,6 +334,9 @@ int main(void)
         ecg_acq_restart();
         have_prev_peak = 0;
         next_block_first = 0;
+#if ECG_STREAM
+        ecg_stream_reset();
+#endif
         printf("Button pressed, acquisition restarted\r\n");
 #if ECG_SIM_ENABLE
         {

@@ -177,6 +177,14 @@ int ecg_acq_poll(const int32_t **samples, uint32_t *first_index)
     return n;
 }
 
+uint32_t ecg_acq_count(void)
+{
+    __disable_irq();
+    uint32_t c = fill_first + fill_n;
+    __enable_irq();
+    return c;
+}
+
 void ecg_acq_release(void)
 {
     held_buf = -1;
