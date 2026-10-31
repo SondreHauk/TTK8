@@ -106,11 +106,34 @@ sample rate: playback is paced by the acquisition sample counter
 Lines leave in groups of EFIT = 16 (every 80 ms), about 3 kB/s, a quarter of
 what 115200 baud carries.
 
-`python tools/ecg_live.py --port COM5` plots the ECG with its R-peaks and the
+`python tools/ecg_live.py` plots the ECG with its R-peaks and the
 heart rate on separate axes (needs `pyserial`, `matplotlib`; `--csv` logs every
 sample). Any plotter that reads `label:value,label:value` lines works too, such
 as the Arduino IDE 2 Serial Plotter, but the heart rate (≈70) then shares an
 axis with the ECG (≈1000 µV).
+
+### Running the plotter on a Mac (or any PC)
+
+Only Python is needed; the firmware can be built and flashed elsewhere. Plug
+the Nucleo's ST-LINK USB into the Mac, then from the repository folder:
+
+```
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r tools/requirements.txt
+python tools/ecg_live.py
+```
+
+The script finds the ST-LINK port itself (`/dev/cu.usbmodem…` on macOS,
+`/dev/ttyACM…` on Linux, `COMx` on Windows). `--list` shows the ports and
+`--port /dev/cu.usbmodem14103` picks one. Next time only `source
+.venv/bin/activate` and the last line are needed. On Windows the activate step
+is `.venv\Scripts\activate`.
+
+VS Code reports errors all over the C code on a machine without the ARM
+toolchain and a configured CMake build (no `arm-none-eabi-gcc`, no
+`build/Debug/compile_commands.json` for clangd). They are editor errors only
+and do not matter for running the plotter.
 
 ### Why output never blocks
 

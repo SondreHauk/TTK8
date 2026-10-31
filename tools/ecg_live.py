@@ -1,6 +1,8 @@
 """Live plot of the ECG and heart rate streamed by max30003_node (ECG_STREAM build).
 
-    python tools/ecg_live.py --port COM5
+    python tools/ecg_live.py                      # finds the ST-LINK port itself
+    python tools/ecg_live.py --list               # show the serial ports
+    python tools/ecg_live.py --port /dev/cu.usbmodem14103     # macOS
     python tools/ecg_live.py --port COM5 --window 8 --csv results/stream.csv
 
 The firmware sends one line per sample at FS Hz, about 11 s behind real time
@@ -12,7 +14,7 @@ The same lines can be shown by any serial plotter that understands
 "label:value" pairs (Arduino IDE 2, VS Code Serial Plotter, ...). This script
 puts the ECG and the heart rate on separate axes and marks the R-peaks.
 Other lines (start-up and status messages) are printed to the terminal.
-Needs pyserial and matplotlib (pip install pyserial matplotlib).
+Needs pyserial and matplotlib: pip install -r tools/requirements.txt.
 """
 import argparse
 import collections
@@ -23,8 +25,37 @@ import threading
 import matplotlib.pyplot as plt
 import serial
 from matplotlib.animation import FuncAnimation
+from serial.tools import list_ports
 
 FS = 200  # Hz, MAX30003_FS_HZ in the firmware
+STLINK_VID = 0x0483  # STMicroelectronics, the Nucleo's ST-LINK virtual COM port
+
+
+def find_port():
+    """Pick the ST-LINK virtual COM port: by USB vendor id, else by name
+    (macOS /dev/cu.usbmodem*, Linux /dev/ttyACM*). None if nothing fits."""
+    ports = list(list_ports.comports())
+    st = [p for p in ports if p.vid == STLINK_VID]
+    if not st:
+        st = [p for p in ports if "usbmodem" in p.device or "ttyACM" in p.device]
+    # macOS lists each port twice; /dev/cu.* is the one to open, not /dev/tty.*
+    cu = {p.device for p in st if p.device.startswith("/dev/cu.")}
+    st = [p for p in st if p.device.replace("/dev/tty.", "/dev/cu.", 1) not in cu or p.device in cu]
+    st.sort(key=lambda p: p.device)
+    if len(st) > 1:
+        print("several candidate ports, using the first (choose with --port):")
+        for p in st:
+            print(f"  {p.device}  {p.description}")
+    return st[0].device if st else None
+
+
+def print_ports():
+    ports = list(list_ports.comports())
+    if not ports:
+        print("no serial ports found")
+    for p in ports:
+        vid = f"{p.vid:04x}:{p.pid:04x}" if p.vid is not None else "-"
+        print(f"{p.device:32} {vid:10} {p.description}")
 
 
 def parse(line: str):
@@ -86,11 +117,24 @@ class Reader(threading.Thread):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--port", required=True, help="serial port, e.g. COM5 or /dev/ttyACM0")
+    ap.add_argument("--port", help="serial port, e.g. /dev/cu.usbmodem14103, COM5 or "
+                    "/dev/ttyACM0 (default: find the ST-LINK port)")
+    ap.add_argument("--list", action="store_true", help="list the serial ports and exit")
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--window", type=float, default=10.0, help="seconds shown (default 10)")
     ap.add_argument("--csv", help="also log every sample to this CSV file")
     args = ap.parse_args()
+
+    if args.list:
+        print_ports()
+        return 0
+    if args.port is None:
+        args.port = find_port()
+        if args.port is None:
+            print("no ST-LINK port found. Is the Nucleo plugged into this computer? "
+                  "Ports present:")
+            print_ports()
+            return 1
 
     out = writer = None
     if args.csv:
