@@ -1,0 +1,16 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Flash",
+      "type": "shell",
+      "command": "C:/Users/shholte/AppData/Local/stm32cube/bundles/programmer/2.23.0/bin/STM32_Programmer_CLI.exe",
+      "args": [
+        "-c", "port=SWD","mode=UR",
+        "-w", "${workspaceFolder}/build/Debug/max30003_node.elf",
+        "-v", "-rst"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "source": {
+    "sourceType": "STM32CubeMX"
+  },
+  "board": "NUCLEO-U385RG-Q",
+  "device": "STM32U385RGT6Q",
+  "core": "Cortex-M33",
+  "order": 0,
+  "toolchain": "GCC"
+}
