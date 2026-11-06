@@ -24,11 +24,8 @@
 #include "ecg_acq.h"
 #include "ecg_sim.h"
 #include "rdetect.h"
-#include "ttk8_test.h"
 #include "uart_tx.h"
-#if ECG_STREAM
 #include "ecg_stream.h"
-#endif
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -40,9 +37,6 @@
 /* USER CODE BEGIN PD */
 #if ECG_ACQ_FS_HZ != RDETECT_FS_HZ
 #error "MAX30003 sample rate (max30003_config.h) and RDETECT_FS_HZ (rdetect_config.h) differ"
-#endif
-#ifndef ECG_STREAM
-#define ECG_STREAM 0      /* 1: stream ECG + heart rate for a serial plotter (set by CMake) */
 #endif
 #if ECG_ACQ_BLOCK_SAMPLES > RDETECT_MAX_SAMPLES
 #error "ECG_ACQ_BLOCK_SECONDS is longer than rdetect accepts (RDETECT_MAX_SAMPLES)"
@@ -68,13 +62,6 @@ TIM_HandleTypeDef htim6;
 
 /* USER CODE BEGIN PV */
 static uint32_t peaks[RDETECT_MAX_PEAKS];
-static int32_t  rr[RDETECT_MAX_PEAKS + 1];
-
-/* Last R-peak of the previous block, so the interval across the block
-   boundary also counts towards the pulse. */
-static uint32_t prev_peak;
-static int      have_prev_peak;
-static uint32_t next_block_first;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -86,63 +73,12 @@ static void MX_TIM3_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
-static void report_block(uint32_t first, int n, const uint32_t *pk, int count) __attribute__((unused));
 static void pulse_trigger(void);
 static int start_acquisition(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-/* Pulse in tenths of bpm from the median RR interval (samples), 0 if there is none. */
-static uint32_t pulse_bpm_x10(int32_t *v, int n)
-{
-  int i, j;
-  int32_t median2;
-
-  if (n <= 0) return 0;
-  for (i = 1; i < n; i++)                  /* insertion sort, n is small */
-  {
-    int32_t key = v[i];
-    for (j = i; j > 0 && v[j - 1] > key; j--) v[j] = v[j - 1];
-    v[j] = key;
-  }
-  median2 = (n & 1) ? 2 * v[n / 2] : v[n / 2 - 1] + v[n / 2];   /* doubled median */
-  if (median2 <= 0) return 0;
-  /* bpm = 60 * fs / median = 120 * fs / median2; x10 and rounded */
-  return (uint32_t)((1200u * RDETECT_FS_HZ + (uint32_t)median2 / 2u) / (uint32_t)median2);
-}
-
-/* One line per block:
- *   block <k> @ <first>: <n> samples, <count> peaks, pulse <bpm> bpm: <p1> <p2> ...
- * Peaks are running sample indices (divide by fs for seconds since start). */
-static void report_block(uint32_t first, int n, const uint32_t *pk, int count)
-{
-  int n_rr = 0;
-  uint32_t bpm10;
-
-  if (first != next_block_first) have_prev_peak = 0;   /* a block was dropped: no interval across */
-  next_block_first = first + (uint32_t)n;
-
-  for (int i = 0; i < count; i++)
-  {
-    uint32_t p = first + pk[i];
-    if (have_prev_peak) rr[n_rr++] = (int32_t)(p - prev_peak);
-    prev_peak = p;
-    have_prev_peak = 1;
-  }
-  bpm10 = pulse_bpm_x10(rr, n_rr);
-
-  printf("block %lu @ %lu: %d samples, %d peaks, pulse ",
-         (unsigned long)(first / ECG_ACQ_BLOCK_SAMPLES), (unsigned long)first, n, count);
-  if (bpm10 != 0) printf("%lu.%lu bpm:", (unsigned long)(bpm10 / 10u), (unsigned long)(bpm10 % 10u));
-  else            printf("- bpm:");
-  for (int i = 0; i < count; i++)
-  {
-    printf(" %lu", (unsigned long)(first + pk[i]));
-  }
-  printf("\r\n");
-}
 
 /* 5 ms pulse on D7 to start a power measurement (X-NUCLEO-LPM01A trigger). */
 static void pulse_trigger(void)
@@ -173,11 +109,7 @@ static int start_acquisition(void)
     printf("MAX30003 SPI error %d. Press USER to retry.\r\n", e);
     break;
   }
-  have_prev_peak = 0;
-  next_block_first = 0;
-#if ECG_STREAM
   ecg_stream_reset();
-#endif
   return e;
 }
 
@@ -243,16 +175,10 @@ int main(void)
   /* USER CODE BEGIN BSP */
   /* From here on printf only queues bytes; USART1's interrupt sends them. */
   uart_tx_init();
-#ifdef TTK8_LOOPBACK
-  /* TTK8 sensor board loopback test; does not return. */
-  ttk8_run(&hspi1, &hdac1, &htim6);
-#endif
   printf("\r\nmax30003_node: %u sps, %u s blocks\r\n", (unsigned)ECG_ACQ_FS_HZ, (unsigned)ECG_ACQ_BLOCK_SECONDS);
-#if ECG_STREAM
   printf("ECG stream: ecg:<uV>,hr:<bpm>,r:<0|1> per sample, %lu.%lu s behind\r\n",
          (unsigned long)(ECG_STREAM_DELAY_SAMPLES / ECG_ACQ_FS_HZ),
          (unsigned long)(ECG_STREAM_DELAY_SAMPLES % ECG_ACQ_FS_HZ * 10u / ECG_ACQ_FS_HZ));
-#endif
   err = start_acquisition();
 #if ECG_SIM_ENABLE
   /* Test signal on PA4 (A2 -> ASIG). Needs JP1 on ASIG and JP2 on 0V9. */
@@ -274,46 +200,23 @@ int main(void)
   while (1)
   {
     const int32_t *ecg;
-    uint32_t first, rr_ms, errors;
+    uint32_t first, errors;
     int n = ecg_acq_poll(&ecg, &first);
 
     if (n > 0)
     {
       int count = rdetect_detect(ecg, (size_t)n, peaks, RDETECT_MAX_PEAKS);
-#if ECG_STREAM
       /* Copied into the playback ring before the buffer goes back to ecg_acq.
          A failed detection still streams the ECG, without peaks. */
       ecg_stream_block(first, ecg, n, peaks, count >= 0 ? count : 0);
-#endif
       ecg_acq_release();
-      if (count >= 0)
-      {
-#if !ECG_STREAM
-        report_block(first, n, peaks, count);
-#endif
-      }
-      else
+      if (count < 0)
       {
         printf("block %lu: rdetect error %d\r\n", (unsigned long)(first / ECG_ACQ_BLOCK_SAMPLES), count);
       }
     }
 
-#if ECG_STREAM
     ecg_stream_pump(ecg_acq_count());
-#endif
-#if MAX30003_RTOR_ENABLE
-    /* In stream mode INT2B is still serviced (the R-to-R interval is read in
-       its interrupt), but the line is not printed: it would be ~11 s ahead of
-       the plotted ECG and break the plotter format. */
-    if (ecg_acq_rtor(&rr_ms) && rr_ms != 0u && !ECG_STREAM)
-    {
-      uint32_t bpm10 = (600000u + rr_ms / 2u) / rr_ms;
-      printf("rtor %lu ms, %lu.%lu bpm\r\n", (unsigned long)rr_ms,
-             (unsigned long)(bpm10 / 10u), (unsigned long)(bpm10 % 10u));
-    }
-#else
-    (void)rr_ms;
-#endif
 
     errors = ecg_acq_take_errors();
     if (errors != 0u)
@@ -332,11 +235,7 @@ int main(void)
       if (err == MAX30003_OK || err == MAX30003_ERR_PLL)
       {
         ecg_acq_restart();
-        have_prev_peak = 0;
-        next_block_first = 0;
-#if ECG_STREAM
         ecg_stream_reset();
-#endif
         printf("Button pressed, acquisition restarted\r\n");
 #if ECG_SIM_ENABLE
         {
