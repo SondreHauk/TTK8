@@ -26,13 +26,8 @@ static uint32_t cur_bpm;
 static DAC_HandleTypeDef *dac;
 static TIM_HandleTypeDef *tim;
 
-#define REC_LEN 256u                  /* power of two */
-static volatile uint32_t rec_decim, rec_count;
-static volatile int32_t  rec_queue[REC_LEN];
-static volatile uint32_t rec_head, rec_tail, rec_dropped;
-static volatile uint32_t ticks;
 
-static uint32_t mv_to_code(float mv)
+static uint32_t __attribute__((unused)) mv_to_code(float mv)
 {
     float c = mv * 4096.0f / (float)ECG_SIM_VREF_MV;
     if (c < 0.0f) c = 0.0f;
@@ -70,42 +65,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     if (code > 4095) code = 4095;
     HAL_DAC_SetValue(dac, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (uint32_t)code);
     if (++pos >= period) pos = 0;
-    ticks++;
-
-    if (rec_decim != 0u && ++rec_count >= rec_decim) {
-        uint32_t next = (rec_head + 1u) & (REC_LEN - 1u);
-        rec_count = 0;
-        if (next == rec_tail) {
-            rec_dropped++;
-        } else {
-            rec_queue[rec_head] = (int32_t)(((int64_t)(code - (int32_t)baseline_code)
-                                             * (int64_t)ECG_SIM_VREF_MV * 1000) / 4096);
-            rec_head = next;
-        }
-    }
 }
-
-void ecg_sim_record(uint32_t decim)
-{
-    __disable_irq();
-    rec_decim = decim;
-    rec_count = 0;
-    rec_head = rec_tail = 0;
-    rec_dropped = 0;
-    __enable_irq();
-}
-
-int ecg_sim_pop(int32_t *uv)
-{
-    uint32_t tail = rec_tail;
-    if (tail == rec_head) return 0;
-    *uv = rec_queue[tail];
-    rec_tail = (tail + 1u) & (REC_LEN - 1u);
-    return 1;
-}
-
-uint32_t ecg_sim_dropped(void) { return rec_dropped; }
-uint32_t ecg_sim_ticks(void)   { return ticks; }
 
 int ecg_sim_set_bpm(uint32_t bpm)
 {

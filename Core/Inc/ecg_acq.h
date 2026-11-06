@@ -39,6 +39,10 @@ int ecg_acq_init(SPI_HandleTypeDef *hspi);
 int ecg_acq_poll(const int32_t **samples, uint32_t *first_index);
 void ecg_acq_release(void);
 
+/* Samples acquired since the start or the last restart, including those in
+ * the block still being filled (and those of dropped blocks). */
+uint32_t ecg_acq_count(void);
+
 /* 1 and *rr_ms set if the MAX30003's own R-to-R detector reported a new
  * interval since the last call, else 0. */
 int ecg_acq_rtor(uint32_t *rr_ms);

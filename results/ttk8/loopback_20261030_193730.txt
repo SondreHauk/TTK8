@@ -1,9 +1,0 @@
-#TTK8,1
-I,fs,200
-I,bpm,50
-I,samples,12000
-I,gain,20
-I,r_amp_uv,10000
-I,baseline_mv,900
-I,info,0x513756
-I,regs,ok

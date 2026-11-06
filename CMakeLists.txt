@@ -48,7 +48,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/max30003.c
     Core/Src/ecg_acq.c
     Core/Src/ecg_sim.c
-    Core/Src/ttk8_test.c
+    Core/Src/uart_tx.c
+    Core/Src/ecg_stream.c
     rdetect/rdetect.c
 )
 
@@ -58,14 +59,9 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     rdetect
 )
 
-# ON: run the TTK8 loopback test (Core/Src/ttk8_test.c) instead of the
-# block-wise detector application.
-option(TTK8_LOOPBACK "Build the TTK8 MAX30003 loopback test" ON)
-
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined symbols
-    $<$<BOOL:${TTK8_LOOPBACK}>:TTK8_LOOPBACK>
 )
 
 # Remove wrong libob.a library dependency when using cpp files
