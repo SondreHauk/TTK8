@@ -49,18 +49,5 @@ int ecg_sim_start(DAC_HandleTypeDef *hdac, TIM_HandleTypeDef *htim, uint32_t bpm
 int ecg_sim_set_bpm(uint32_t bpm);
 uint32_t ecg_sim_bpm(void);
 
-/* Queue every decim-th DAC value, in microvolts relative to the baseline
- * after DAC quantisation, i.e. what was actually output. decim = 0 stops
- * queueing. Clears the queue. Used by the TTK8 loopback test. */
-void ecg_sim_record(uint32_t decim);
-
-/* Take one queued value. Returns 0 when the queue is empty, else 1. */
-int ecg_sim_pop(int32_t *uv);
-
-/* Values lost because the queue was full since ecg_sim_record(). */
-uint32_t ecg_sim_dropped(void);
-
-/* DAC updates (TIM6 interrupts) since start-up. */
-uint32_t ecg_sim_ticks(void);
 
 #endif
